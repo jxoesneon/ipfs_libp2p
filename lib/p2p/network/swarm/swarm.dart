@@ -591,6 +591,15 @@ class Swarm implements Network {
         managementScope: streamManagementScope,
       );
 
+      // Set a negotiation deadline on the inbound stream so that stalled
+      // protocol negotiations don't hang forever.
+      final negTimeout =
+          _config.negotiationTimeout ?? const Duration(seconds: 10);
+      final hasTimeout = negTimeout > Duration.zero;
+      if (hasTimeout) {
+        await swarmStream.setDeadline(DateTime.now().add(negTimeout));
+      }
+
       // Use the host's MultistreamMuxer to handle the incoming stream and negotiate the protocol
       // The host's mux is an instance of MultistreamMuxer and implements ProtocolSwitch.
       // The handle method performs the negotiation and dispatches to the correct handler.
@@ -600,6 +609,11 @@ class Swarm implements Network {
         _logger.warning(
             'Error handling incoming stream from ${conn.remotePeer} with multistream muxer: $e\n$s');
         await swarmStream.reset(); // Reset the SwarmStream, which closes scope
+      } finally {
+        // Clear the deadline so protocol handlers are not constrained.
+        if (hasTimeout) {
+          await swarmStream.setDeadline(null);
+        }
       }
     };
 
@@ -1352,9 +1366,22 @@ class Swarm implements Network {
     }
   }
 
-  /// Immediately removes a failed connection
+  /// Removes a failed connection, respecting protection tags.
+  /// Protected connections get their health reset instead of being removed,
+  /// to prevent permanent loss of critical connections.
   Future<void> _removeFailedConnection(SwarmConn conn) async {
     try {
+      // Protected connections should not be permanently removed — reset health
+      // to give them another chance. This prevents the cascade where a timeout
+      // removes a server connection and addresses expire, making recovery impossible.
+      if (_host?.connManager.isProtected(conn.remotePeer, '') ?? false) {
+        _logger.warning(
+            'Swarm: Protected connection ${conn.id} to ${conn.remotePeer} has failed - resetting health instead of removing');
+        conn.healthMetrics
+            .recordPathUpdate(); // resets consecutive errors and state to healthy
+        return;
+      }
+
       _logger.warning(
           'Swarm: Removing failed connection ${conn.id} to ${conn.remotePeer}');
       await removeConnection(conn);

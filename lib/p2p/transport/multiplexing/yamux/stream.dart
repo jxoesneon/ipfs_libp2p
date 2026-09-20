@@ -955,12 +955,24 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
       if (_consumedBytesForLocalWindowUpdate >= _minWindowUpdateBytes) {
         final updateFrame = YamuxFrame.windowUpdate(
             streamId, _consumedBytesForLocalWindowUpdate);
-        await _sendFrame(updateFrame);
-        _localReceiveWindow +=
-            _consumedBytesForLocalWindowUpdate; // We "give back" the window
-        _log.fine(
-            '$_logPrefix ðŸ”§ [YAMUX-STREAM-WINDOW-UPDATE] Sent window update for $_consumedBytesForLocalWindowUpdate bytes');
-        _consumedBytesForLocalWindowUpdate = 0;
+        var sent = true;
+        try {
+          await _sendFrame(updateFrame);
+        } catch (e) {
+          // Keep the consumed bytes so they're included in the next window
+          // update attempt — otherwise lost bytes permanently reduce the
+          // remote sender's credit and stall the stream.
+          sent = false;
+          _log.warning(
+              '$_logPrefix Error sending window update for $_consumedBytesForLocalWindowUpdate bytes (will retry): $e');
+        }
+        if (sent) {
+          _localReceiveWindow +=
+              _consumedBytesForLocalWindowUpdate; // We "give back" the window
+          _log.fine(
+              '$_logPrefix ðŸ”§ [YAMUX-STREAM-WINDOW-UPDATE] Sent window update for $_consumedBytesForLocalWindowUpdate bytes');
+          _consumedBytesForLocalWindowUpdate = 0;
+        }
       }
     }
 

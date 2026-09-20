@@ -1188,7 +1188,7 @@ class IdentifyService implements IDService {
     final (added, removed) = _diff(supported, mesProtocols);
     _log.fine(
         'IdentifyService._consumeMessage: For peer $p - Added protocols: ${added.length}, Removed protocols: ${removed.length}');
-    host.peerStore.protoBook.setProtocols(p, mesProtocols);
+    await host.peerStore.protoBook.setProtocols(p, mesProtocols);
 
     if (isPush) {
       _log.fine(
