@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-09-20
+
+- **Fixed**: `YamuxSession.openStream` no longer blocks on the remote peer's
+  stream ACK before returning the stream. Implementations such as js-yamux
+  send the ACK lazily (piggybacked on the acceptor's first outgoing frame),
+  which deadlocked every outbound stream against js-libp2p/Helia peers
+  during multistream negotiation. The stream is now opened immediately
+  after the SYN frame, matching go-yamux semantics; the ACK is consumed
+  asynchronously by the session read loop.
+- **Fixed**: EOF during the secured-connection read loop no longer throws
+  `RangeError` — a finer-level log dereferenced the empty length-prefix
+  buffer before the EOF check, which surfaced clean transport shutdown as
+  a session error.
+
 ## [0.5.6] - 2026-02-03
 
 - **Fixed**: Replaced broken ASCII architecture diagram in README.md.
