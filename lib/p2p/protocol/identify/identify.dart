@@ -1602,6 +1602,9 @@ class IdentifyService implements IDService {
     final identifyWaitStart = DateTime.now();
 
     Completer<void>? completerToAwait;
+    // True when an early-return path already logged the reason there is
+    // nothing to await (already identified or closed connection).
+    var waitResolved = false;
 
     await _connsMutex.synchronized(() async {
       final mutexAcquiredTime = DateTime.now().difference(identifyWaitStart);
@@ -1616,6 +1619,7 @@ class IdentifyService implements IDService {
           _log.fine(
               ' [IDENTIFY-WAIT-ALREADY-SUCCEEDED] Peer $peerId already identified on this connection, skipping');
           // completerToAwait remains null, so function will return immediately
+          waitResolved = true;
           return;
         }
 
@@ -1634,6 +1638,7 @@ class IdentifyService implements IDService {
           _log.warning(
               ' [IDENTIFY-WAIT-PHASE-1-CONN-CLOSED] Connection to peer=$peerId is already closed. Not creating entry or starting identify.');
           // Completer to await will remain null, function will return.
+          waitResolved = true;
           return;
         }
 
@@ -1648,8 +1653,10 @@ class IdentifyService implements IDService {
     final mutexReleasedTime = DateTime.now().difference(identifyWaitStart);
 
     if (completerToAwait == null) {
-      _log.warning(
-          ' [IDENTIFY-WAIT-NO-COMPLETER] No completer to await for peer=$peerId (e.g., connection was closed). Identify will not complete.');
+      if (!waitResolved) {
+        _log.warning(
+            ' [IDENTIFY-WAIT-NO-COMPLETER] No completer to await for peer=$peerId (e.g., connection was closed). Identify will not complete.');
+      }
       return; // Or throw, depending on desired behavior for closed conns.
     }
 
