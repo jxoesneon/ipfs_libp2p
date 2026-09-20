@@ -3,6 +3,7 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+
 import 'dart:async' as _i15;
 
 import 'package:ipfs_libp2p/core/connmgr/conn_manager.dart' as _i6;
@@ -690,7 +691,7 @@ class MockProtoBook extends _i1.Mock implements _i3.ProtoBook {
     _i2.PeerId? id,
     List<String>? protocols,
   ) =>
-      super.noSuchMethod(
+      (super.noSuchMethod(
         Invocation.method(
           #addProtocols,
           [
@@ -700,14 +701,14 @@ class MockProtoBook extends _i1.Mock implements _i3.ProtoBook {
         ),
         returnValue: _i15.Future<void>.value(),
         returnValueForMissingStub: _i15.Future<void>.value(),
-      ) as _i15.Future<void>;
+      ) as _i15.Future<void>);
 
   @override
   _i15.Future<void> setProtocols(
     _i2.PeerId? id,
     List<String>? protocols,
   ) =>
-      super.noSuchMethod(
+      (super.noSuchMethod(
         Invocation.method(
           #setProtocols,
           [
@@ -717,14 +718,14 @@ class MockProtoBook extends _i1.Mock implements _i3.ProtoBook {
         ),
         returnValue: _i15.Future<void>.value(),
         returnValueForMissingStub: _i15.Future<void>.value(),
-      ) as _i15.Future<void>;
+      ) as _i15.Future<void>);
 
   @override
   _i15.Future<void> removeProtocols(
     _i2.PeerId? id,
     List<String>? protocols,
   ) =>
-      super.noSuchMethod(
+      (super.noSuchMethod(
         Invocation.method(
           #removeProtocols,
           [
@@ -734,7 +735,7 @@ class MockProtoBook extends _i1.Mock implements _i3.ProtoBook {
         ),
         returnValue: _i15.Future<void>.value(),
         returnValueForMissingStub: _i15.Future<void>.value(),
-      ) as _i15.Future<void>;
+      ) as _i15.Future<void>);
 
   @override
   _i15.Future<List<String>> supportsProtocols(
@@ -787,6 +788,12 @@ class MockAutoNATv2 extends _i1.Mock implements _i10.AutoNATv2 {
   }
 
   @override
+  bool get hasPeers => (super.noSuchMethod(
+        Invocation.getter(#hasPeers),
+        returnValue: false,
+      ) as bool);
+
+  @override
   _i15.Future<void> start() => (super.noSuchMethod(
         Invocation.method(
           #start,
@@ -805,15 +812,6 @@ class MockAutoNATv2 extends _i1.Mock implements _i10.AutoNATv2 {
         returnValue: _i15.Future<void>.value(),
         returnValueForMissingStub: _i15.Future<void>.value(),
       ) as _i15.Future<void>);
-
-  @override
-  bool get hasPeers => (super.noSuchMethod(
-        Invocation.getter(
-          #hasPeers,
-        ),
-        returnValue: false,
-        returnValueForMissingStub: false,
-      ) as bool);
 
   @override
   _i15.Future<_i10.Result> getReachability(List<_i10.Request>? requests) =>

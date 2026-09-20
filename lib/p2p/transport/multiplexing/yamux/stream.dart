@@ -239,6 +239,30 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
     await _sendFrame(frame);
   }
 
+  /// Opens the stream for an incoming (remote-initiated) stream.
+  /// Unlike [open], this fire-and-forgets the initial window update
+  /// so it doesn't block the yamux read loop when the write path
+  /// is stalled.
+  Future<void> openIncoming() async {
+    _log.finer('$_logPrefix openIncoming() called. Current state: $_state');
+    if (_state != YamuxStreamState.init) {
+      _log.warning(
+          '$_logPrefix openIncoming() called on stream not in init state: $_state');
+      throw StateError('Stream is not in init state');
+    }
+    _state = YamuxStreamState.open;
+    _openedAt = DateTime.now();
+    _log.fine(
+        '$_logPrefix Stream opened (incoming). Sending initial window update (fire-and-forget).');
+
+    // Fire-and-forget: don't block the read loop on the window update send.
+    final frame = YamuxFrame.windowUpdate(streamId, _localReceiveWindow);
+    _sendFrame(frame).catchError((e) {
+      _log.warning('$_logPrefix Error sending initial window update: $e');
+      return null;
+    });
+  }
+
   @override
   Future<void> write(List<int> data) async {
     final inputDataLength = data.length;
@@ -882,7 +906,9 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
       _log.finer(
           '$_logPrefix Received PING request (flag 0), sending PONG (flag 1). Opaque value: ${frame.length}');
       final pongFrame = YamuxFrame.ping(true, frame.length);
-      await _sendFrame(pongFrame);
+      _sendFrame(pongFrame).catchError((e) {
+        _log.warning('$_logPrefix Error sending PONG response: $e');
+      });
     } else {
       // Ping response (flag 1)
       _log.finer(
@@ -951,28 +977,27 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
       _log.fine(
           '$_logPrefix ðŸ”§ [YAMUX-STREAM-HANDLE-DATA-WINDOW] Consumed for local window: $_consumedBytesForLocalWindowUpdate');
 
-      // Send window update when threshold reached
+      // Send window update when threshold reached.
+      // Fire-and-forget: don't block the read loop waiting for the write
+      // to complete. If the send fails, restore the consumed bytes so
+      // they're included in the next window update attempt — otherwise
+      // lost bytes permanently reduce the remote sender's credit.
       if (_consumedBytesForLocalWindowUpdate >= _minWindowUpdateBytes) {
-        final updateFrame = YamuxFrame.windowUpdate(
-            streamId, _consumedBytesForLocalWindowUpdate);
-        var sent = true;
-        try {
-          await _sendFrame(updateFrame);
-        } catch (e) {
-          // Keep the consumed bytes so they're included in the next window
-          // update attempt — otherwise lost bytes permanently reduce the
-          // remote sender's credit and stall the stream.
-          sent = false;
-          _log.warning(
-              '$_logPrefix Error sending window update for $_consumedBytesForLocalWindowUpdate bytes (will retry): $e');
-        }
-        if (sent) {
-          _localReceiveWindow +=
-              _consumedBytesForLocalWindowUpdate; // We "give back" the window
+        final bytesToUpdate = _consumedBytesForLocalWindowUpdate;
+        _consumedBytesForLocalWindowUpdate = 0;
+        _localReceiveWindow += bytesToUpdate;
+        final updateFrame = YamuxFrame.windowUpdate(streamId, bytesToUpdate);
+        _sendFrame(updateFrame).then((_) {
           _log.fine(
-              '$_logPrefix ðŸ”§ [YAMUX-STREAM-WINDOW-UPDATE] Sent window update for $_consumedBytesForLocalWindowUpdate bytes');
-          _consumedBytesForLocalWindowUpdate = 0;
-        }
+              '$_logPrefix 🔧 [YAMUX-STREAM-WINDOW-UPDATE] Sent window update for $bytesToUpdate bytes');
+        }).catchError((e) {
+          // Restore consumed bytes so they're included in the next attempt.
+          _consumedBytesForLocalWindowUpdate += bytesToUpdate;
+          _localReceiveWindow -= bytesToUpdate;
+          _log.warning(
+              '$_logPrefix Error sending window update for $bytesToUpdate bytes (will retry): $e');
+          return null;
+        });
       }
     }
 

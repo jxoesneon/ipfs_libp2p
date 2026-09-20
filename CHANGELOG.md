@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2026-09-20
+
+- **Fixed**: Yamux inbound-stream creation no longer blocks the session
+  read loop. Remote-initiated streams are registered before the SYN-ACK
+  is sent, and the SYN-ACK, initial window update, per-stream PONG, and
+  threshold window updates are sent fire-and-forget. A stalled write
+  previously froze all inbound frame processing, which starved
+  multistream-select negotiation and caused interop peers (e.g. Kubo) to
+  time out and reset inbound streams.
+- **Fixed**: `YamuxSession.acceptStream()` drains a buffered queue so
+  inbound streams are never lost when no accept call is waiting.
+- **Fixed**: A failed data-path window-update send restores the consumed
+  byte accounting so the remote sender's credit is retried rather than
+  permanently reduced.
+- **Added**: `YamuxStream.openIncoming()` for remote-initiated streams.
+- **Added**: regression tests covering blocked-write inbound stream
+  creation, eager post-SYN data delivery, acceptStream race prevention,
+  and window-update failure recovery.
+
 ## [0.5.8] - 2026-09-20
 
 - **Merged**: semantic fixes from upstream `dart_libp2p` 1.0.3 while

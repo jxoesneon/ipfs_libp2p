@@ -66,9 +66,11 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
   Future<void> Function(P2PStream stream)? _streamHandler;
   // Using broadcast controller
   final _incomingStreamsController = StreamController<P2PStream>.broadcast();
-  // Completer-based approach to prevent race condition where acceptStream()
-  // misses events if SYN arrives before .first listener attaches
-  Completer<P2PStream>? _pendingAcceptStreamCompleter;
+  // Buffered queue of accepted inbound streams. Streams are never lost even
+  // if acceptStream() is not currently waiting.
+  final _incomingStreamQueue = Queue<P2PStream>();
+  // acceptStream() awaits this when the queue is empty.
+  Completer<void>? _incomingStreamNotifier;
   bool _closed = false;
   bool _cleanupStarted = false;
   final _initCompleter = Completer<void>();
@@ -449,23 +451,17 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
     if (_closed || !canCreateStream) {
       _log.warning(
           '$_logPrefix Cannot accept new stream ID ${frame.streamId}. Session closed: $_closed, Can create: $canCreateStream. Sending RESET.');
+      // Fire-and-forget: don't block the read loop on rejected stream RST send.
       final rstFrame = YamuxFrame.reset(frame.streamId);
-      await _sendFrame(rstFrame).catchError((e) {
+      _sendFrame(rstFrame).catchError((e) {
         _log.warning(
             '$_logPrefix Error sending RESET for unaccepted stream ${frame.streamId}: $e');
       });
       return;
     }
 
-    final ackFrame = YamuxFrame.synAckStream(frame.streamId);
-    try {
-      await _sendFrame(ackFrame);
-    } catch (e) {
-      _log.severe(
-          '$_logPrefix _handleNewStream: FAILED to send SYN-ACK for stream ID ${frame.streamId}: $e. Aborting stream setup.'); // More specific message
-      return;
-    }
-
+    // Create and register the stream BEFORE sending the SYN-ACK so that
+    // subsequent frames for this stream ID can be dispatched immediately.
     final initialWindow = _config.initialStreamWindowSize;
     final stream = YamuxStream(
       id: frame.streamId,
@@ -482,21 +478,33 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
 
     _streams[frame.streamId] = stream;
 
-    // DEBUG: Add session-level stream tracking for inbound streams
+    // Fire-and-forget SYN-ACK: don't block the read loop waiting for the
+    // write to complete. A stalled write would freeze all frame processing
+    // and the remote's multistream-select would time out.
+    _sendFrame(YamuxFrame.synAckStream(frame.streamId)).catchError((e) {
+      _log.warning(
+          '$_logPrefix Error sending SYN-ACK for stream ${frame.streamId}: $e');
+      return null;
+    });
 
     try {
-      await stream.open();
+      // openIncoming() fire-and-forgets the initial window update so this
+      // path never blocks the read loop on a send.
+      await stream.openIncoming();
 
       // Notify metrics observer of incoming stream opened
       metricsObserver?.onStreamOpened(
           remotePeer, frame.streamId, stream.protocol());
 
-      // Check if there's a pending acceptStream() call waiting for a stream
-      if (_pendingAcceptStreamCompleter != null &&
-          !_pendingAcceptStreamCompleter!.isCompleted) {
-        _pendingAcceptStreamCompleter!.complete(stream);
-        _pendingAcceptStreamCompleter = null;
+      // Buffer the stream for acceptStream() consumers; the queue never
+      // loses a stream even if no acceptStream() call is currently waiting.
+      _incomingStreamQueue.add(stream);
+      if (_incomingStreamNotifier != null &&
+          !_incomingStreamNotifier!.isCompleted) {
+        _incomingStreamNotifier!.complete();
+        _incomingStreamNotifier = null;
       }
+
 
       // Always add to controller for broadcast stream listeners
       _incomingStreamsController.add(stream);
@@ -537,9 +545,16 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
       }
       return;
     }
-    // Ping request (SYN flag or no flags) â€” respond with ACK
+    // Ping request (SYN flag or no flags) — respond with ACK.
+    // Fire-and-forget: don't block the read loop waiting for the write to
+    // complete. The write lock serializes the send with other writes,
+    // preserving order. If the send fails, the remote will ping again.
     final response = YamuxFrame.ping(true, opaqueValue);
-    await _sendFrame(response);
+    _sendFrame(response).catchError((e) {
+      _log.warning(
+          '$_logPrefix Error sending PONG response for ping $opaqueValue: $e');
+      return null;
+    });
   }
 
   Future<void> _handleGoAway(YamuxFrame frame) async {
@@ -770,42 +785,21 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
       throw StateError('Session is closed, cannot accept new streams.');
     }
 
-    // Use completer-based approach to avoid race condition
-    _pendingAcceptStreamCompleter = Completer<P2PStream>();
-
-    try {
-      // Race between the completer (set by _handleNewStream) and the stream listener
-      // This handles the race condition where a SYN arrives before .first attaches
-      final p2pStream = await Future.any([
-        _pendingAcceptStreamCompleter!.future,
-        incomingStreams.first.catchError((e) {
-          // If .first fails with StateError (no element), check if session is closed
-          if (e is StateError) {
-            if (_closed || _incomingStreamsController.isClosed) {
-              throw StateError('Session closed while waiting for stream');
-            }
-          }
-          throw e;
-        }),
-      ]);
-
-      if (p2pStream is YamuxStream) {
-        return p2pStream;
-      } else {
-        throw StateError(
-            'Incoming stream is not a YamuxStream, which is unexpected.');
+    // Drain from the buffered queue. If empty, wait for notification.
+    while (_incomingStreamQueue.isEmpty) {
+      if (_closed || _incomingStreamsController.isClosed) {
+        throw StateError('Session closed while waiting for stream');
       }
-    } catch (e) {
-      // Handle errors from both the completer and the stream
-      if (e is StateError) {
-        // Propagate StateError as is
-        rethrow;
-      }
-      // For other errors, wrap them
-      throw StateError('Error waiting for stream: $e');
-    } finally {
-      // Clean up the completer
-      _pendingAcceptStreamCompleter = null;
+      _incomingStreamNotifier = Completer<void>();
+      await _incomingStreamNotifier!.future;
+    }
+
+    final p2pStream = _incomingStreamQueue.removeFirst();
+    if (p2pStream is YamuxStream) {
+      return p2pStream;
+    } else {
+      throw StateError(
+          'Incoming stream is not a YamuxStream, which is unexpected.');
     }
   }
 
@@ -869,6 +863,14 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
         _log.warning(
             '$_logPrefix _cleanupWithoutFrames: Error force-resetting stream ${stream.id()}: $e');
       }
+    }
+
+    // Clear any buffered incoming streams and wake up pending acceptStream().
+    _incomingStreamQueue.clear();
+    if (_incomingStreamNotifier != null &&
+        !_incomingStreamNotifier!.isCompleted) {
+      _incomingStreamNotifier!.complete();
+      _incomingStreamNotifier = null;
     }
 
     try {
