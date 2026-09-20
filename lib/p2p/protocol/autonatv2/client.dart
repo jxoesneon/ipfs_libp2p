@@ -119,7 +119,8 @@ class AutoNATv2ClientImpl implements AutoNATv2Client {
       // Handle the response
       if (response.hasDialResponse()) {
         // Process the dial response
-        return _processDialResponse(response.dialResponse, requests, completer);
+        return await _processDialResponse(
+            response.dialResponse, requests, completer);
       } else if (response.hasDialDataRequest()) {
         // Handle dial data request
         try {
@@ -144,7 +145,8 @@ class AutoNATv2ClientImpl implements AutoNATv2Client {
         }
 
         // Process the dial response
-        return _processDialResponse(response.dialResponse, requests, completer);
+        return await _processDialResponse(
+            response.dialResponse, requests, completer);
       } else {
         stream.reset();
         throw Exception('Invalid message type: ${response.whichMsg()}');

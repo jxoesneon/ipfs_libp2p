@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-09-20
+
+- **Merged**: semantic fixes from upstream `dart_libp2p` 1.0.3 while
+  preserving this fork's implementation lineage.
+- **Fixed**: Yamux sessions now close (goAway/internalError) when the
+  keepalive ping send fails, instead of remaining open as zombies.
+- **Fixed**: Yamux flow-control credit is preserved when a window-update
+  send fails, and the failure no longer kills the session read loop.
+- **Fixed**: Identify now awaits protoBook updates before completing,
+  removing a race where advertised protocols (e.g. pubsub capability)
+  could lag behind the identify response.
+- **Fixed**: Inbound stream negotiation now runs under the configured
+  negotiation deadline.
+- **Fixed**: Connection pruning respects protected-connection tags and
+  classifies timeout errors correctly.
+- **Changed**: AutoNAT v2 client and server use varint-delimited protobuf
+  framing matching go-libp2p, with response-type validation and exact
+  dial-data byte accounting.
+- **Added**: `AutoNATv2.hasPeers`; ambient AutoNAT v2 applies exponential
+  backoff (10s-60s) when no AutoNAT-capable peers exist and emits an
+  initial UNKNOWN reachability so AutoRelay can start immediately.
+- **Fixed**: AutoRelay starts RelayFinder eagerly when initial
+  reachability is private/unknown; behind CGNAT an unknown->unknown
+  transition never fires a change event, so RelayFinder previously
+  never started.
+- **Changed**: Circuit relay v2 client/relay and AutoRelay finder adopt
+  upstream's reworked relayed-connection handling (STOP stream
+  processing, circuit address construction, connection tracking).
+- **Tests**: imported upstream coverage for identify, swarm, yamux,
+  circuitv2, autorelay, autonat, tcp_connection, multistream and
+  secured_connection.
+
 ## [0.5.7] - 2026-09-20
 
 - **Fixed**: `YamuxSession.openStream` no longer blocks on the remote peer's
