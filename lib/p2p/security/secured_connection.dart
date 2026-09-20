@@ -393,15 +393,16 @@ class SecuredConnection implements TransportConn {
     // Uses 2-byte big-endian length prefix per libp2p Noise spec (max 65535 bytes per frame).
     _log.finer('SecuredConnection: Reading length prefix (2 bytes)');
     final lengthBytes = await _readFullMessage(2);
-    _log.finer(
-        'SecuredConnection: Length prefix bytes: [${lengthBytes[0]}, ${lengthBytes[1]}]');
-    _log.finer(
-        'SecuredConnection: FROM_UNDERLYING_READ (Length Prefix) - Bytes: ${hex.encode(lengthBytes)}');
 
     if (lengthBytes.isEmpty) {
       _log.finer('SecuredConnection: EOF when reading length prefix.');
       return Uint8List(0);
     }
+
+    _log.finer(
+        'SecuredConnection: Length prefix bytes: [${lengthBytes[0]}, ${lengthBytes[1]}]');
+    _log.finer(
+        'SecuredConnection: FROM_UNDERLYING_READ (Length Prefix) - Bytes: ${hex.encode(lengthBytes)}');
     if (lengthBytes.length < 2) {
       _log.finer(
           'SecuredConnection: Connection closed while reading length prefix, got ${lengthBytes.length} bytes.');
