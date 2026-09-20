@@ -3,3 +3,6 @@
 pubspec.lock
 build/
 .doc/
+coverage/
+*.vm.json
+dry_run_*.txt
