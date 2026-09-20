@@ -144,8 +144,10 @@ class YamuxSession implements Multiplexer, core_mux.MuxedConn, Conn {
       metricsObserver?.onPingSent(remotePeer, pingId, now);
     } catch (e) {
       _log.warning(
-          '$_logPrefix âŒ [YAMUX-KEEPALIVE] Error sending PING: $e. Session may be unhealthy.');
+          '$_logPrefix [YAMUX-KEEPALIVE] Error sending PING: $e. Closing session.');
       _pendingPings.remove(pingId);
+      // Underlying connection is dead; close session to prevent zombie
+      _goAway(YamuxCloseReason.internalError);
     }
   }
 

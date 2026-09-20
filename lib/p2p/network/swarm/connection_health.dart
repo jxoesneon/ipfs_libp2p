@@ -281,7 +281,17 @@ class ConnectionHealthMonitor {
   bool _isStreamLevelError(dynamic error) {
     if (error == null) return false;
 
+    // Timeouts are transient and don't indicate the connection itself is broken.
+    // Treat them as stream-level so they require 3 occurrences within 30s
+    // before escalating to a connection error.
+    if (error is TimeoutException) return true;
+
     final errorString = error.toString().toLowerCase();
+
+    // Timeout errors from string matching (e.g., wrapped TimeoutException)
+    if (errorString.contains('timed out') || errorString.contains('timeout')) {
+      return true;
+    }
 
     // UDX-specific stream errors
     if (error.runtimeType.toString().contains('UDXStreamException'))

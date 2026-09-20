@@ -14,6 +14,7 @@ import '../../../core/multiaddr.dart';
 import '../../../core/network/context.dart';
 import '../../../core/network/rcmgr.dart';
 import '../../../core/network/stream.dart';
+import '../../../utils/protobuf_utils.dart';
 import 'options.dart';
 
 final _log = Logger('autonatv2.server');
@@ -165,7 +166,7 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
           ..status = DialResponse_ResponseStatus.E_REQUEST_REJECTED);
 
       try {
-        stream.write(response.writeToBuffer());
+        await writeDelimited(stream, response);
       } catch (e) {
         stream.reset();
         _log.fine('Failed to write request rejected response to $peerId: $e');
@@ -188,15 +189,26 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
     // Mark request as complete when done
     limiter.completeRequest(peerId);
 
-    // Read the request
+    // Read the request (varint-length-prefixed)
     Message? message;
     try {
-      message = Message.fromBuffer(await stream.read());
+      message = await readDelimited(stream, Message.fromBuffer);
     } catch (e) {
       stream.reset();
       _log.fine('Failed to read request from $peerId: $e');
       return EventDialRequestCompleted(
         error: Exception('Read failed: $e'),
+        responseStatus: DialResponse_ResponseStatus.E_INTERNAL_ERROR,
+        dialStatus: DialStatus.UNUSED,
+        dialDataRequired: false,
+      );
+    }
+
+    if (message.dialRequest == null) {
+      stream.reset();
+      _log.fine('Invalid message type from $peerId: expected DialRequest');
+      return EventDialRequestCompleted(
+        error: ServerErrors.badRequest,
         responseStatus: DialResponse_ResponseStatus.E_INTERNAL_ERROR,
         dialStatus: DialStatus.UNUSED,
         dialDataRequired: false,
@@ -237,7 +249,7 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
           ..status = DialResponse_ResponseStatus.E_DIAL_REFUSED);
 
       try {
-        stream.write(response.writeToBuffer());
+        await writeDelimited(stream, response);
       } catch (e) {
         stream.reset();
         _log.fine('Failed to write dial refused response to $peerId: $e');
@@ -267,7 +279,7 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
           ..status = DialResponse_ResponseStatus.E_REQUEST_REJECTED);
 
       try {
-        stream.write(response.writeToBuffer());
+        await writeDelimited(stream, response);
       } catch (e) {
         stream.reset();
         _log.fine('Failed to write request rejected response to $peerId: $e');
@@ -322,7 +334,7 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
         ..addrIdx = addrIdx);
 
     try {
-      stream.write(response.writeToBuffer());
+      await writeDelimited(stream, response);
     } catch (e) {
       stream.reset();
       _log.fine('Failed to write response to $peerId: $e');
@@ -354,22 +366,18 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
         ..addrIdx = addrIdx
         ..numBytes = Int64(numBytes));
 
-    await stream.write(request.writeToBuffer());
+    await writeDelimited(stream, request);
 
-    // Read dial data
+    // Read dial data (varint-length-prefixed messages)
     int remain = numBytes;
     while (remain > 0) {
-      final data = await stream.read();
-      if (data.isEmpty) {
-        throw Exception('Dial data read failed: empty message');
+      final msg = await readDelimited(stream, Message.fromBuffer);
+      if (!msg.hasDialDataResponse() || msg.dialDataResponse.data.isEmpty) {
+        throw Exception('Dial data read failed: invalid or empty message');
       }
 
-      // Estimate the actual data size (excluding protobuf overhead)
-      final bytesLen = data.length - 4; // Rough estimate of protobuf overhead
-
-      if (bytesLen > 0) {
-        remain -= bytesLen;
-      }
+      final bytesLen = msg.dialDataResponse.data.length;
+      remain -= bytesLen;
 
       // Check if the peer is sending too little data
       if (bytesLen < 100 && remain > 0) {
@@ -401,16 +409,16 @@ class AutoNATv2ServerImpl implements AutoNATv2Server {
       // Set deadline
       stream.setDeadline(now().add(dialBackStreamTimeout));
 
-      // Send the nonce
+      // Send the nonce (varint-length-prefixed)
       final dialBack = DialBack()..nonce = Int64(nonce);
-      await stream.write(dialBack.writeToBuffer());
+      await writeDelimited(stream, dialBack);
 
       // Close the write side of the stream
       await stream.closeWrite();
 
       // Read a response to ensure the message was delivered
       try {
-        await stream.read();
+        await readDelimited(stream, DialBackResponse.fromBuffer);
       } catch (e) {
         // Ignore read errors, we just want to make sure the message was sent
       }

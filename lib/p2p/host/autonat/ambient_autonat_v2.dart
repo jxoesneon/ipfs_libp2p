@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'dart:math';
 
 import 'package:ipfs_libp2p/core/event/bus.dart';
 import 'package:ipfs_libp2p/core/event/addrs.dart';
@@ -32,6 +33,8 @@ class AmbientAutoNATv2 {
   // State tracking
   Reachability _currentStatus = Reachability.unknown;
   int _confidence = 0;
+  bool _hasEmittedInitial = false;
+  int _noPeersAttempts = 0; // Track consecutive no-peers failures for backoff
 
   // Event emission
   late final Emitter _emitter;
@@ -110,6 +113,7 @@ class AmbientAutoNATv2 {
       // Check if peer supports AutoNAT v2 dial protocol
       if (protocols.contains(AutoNATv2Protocols.dialProtocol)) {
         _log.fine('Peer $peerId supports AutoNAT v2, scheduling probe');
+        _noPeersAttempts = 0; // Reset backoff since we have a peer now
         _scheduleNextProbe(true);
       }
     } catch (e) {
@@ -164,6 +168,25 @@ class AmbientAutoNATv2 {
     if (_closed) return;
 
     _log.info('Executing reachability probe');
+
+    // Check if any peers support AutoNAT v2 before attempting probe
+    if (!_autoNATv2.hasPeers) {
+      _noPeersAttempts++;
+      // Backoff: 10s, 20s, 40s, 60s, 60s, ... (capped at 60s)
+      final backoffSeconds = min(60, 10 * (1 << min(_noPeersAttempts - 1, 3)));
+      _log.fine('No peers support AutoNAT v2 yet, retrying in ${backoffSeconds}s '
+          '(attempt $_noPeersAttempts)');
+      // Emit initial unknown so AutoRelay can start even without AutoNAT peers
+      if (!_hasEmittedInitial) {
+        _log.info(
+            'No AutoNAT v2 peers available, emitting initial UNKNOWN reachability');
+        _hasEmittedInitial = true;
+        _emitStatusChange();
+      }
+      _scheduleNextProbe(false, delay: Duration(seconds: backoffSeconds));
+      return;
+    }
+    _noPeersAttempts = 0;
 
     // Get addresses to probe
     final addrs = _getAddressesToProbe();
