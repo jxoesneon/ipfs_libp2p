@@ -1,6 +1,6 @@
 name: ipfs_libp2p
 description: A comprehensive Dart implementation of the libp2p networking stack with modular architecture, multiple transports (TCP/UDX), Noise security, and peer-to-peer capabilities.
-version: 0.5.10
+version: 0.5.11
 repository: https://github.com/jxoesneon/ipfs_libp2p
 issue_tracker: https://github.com/jxoesneon/ipfs_libp2p/issues
 

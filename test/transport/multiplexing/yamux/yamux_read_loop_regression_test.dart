@@ -9,6 +9,7 @@ import 'package:ipfs_libp2p/p2p/transport/multiplexing/multiplexer.dart';
 import 'package:ipfs_libp2p/p2p/transport/multiplexing/yamux/frame.dart';
 import 'package:ipfs_libp2p/p2p/transport/multiplexing/yamux/session.dart';
 import 'package:ipfs_libp2p/p2p/transport/multiplexing/yamux/stream.dart';
+import 'package:ipfs_libp2p/p2p/transport/multiplexing/yamux/yamux_exceptions.dart';
 import 'package:mockito/mockito.dart';
 import 'package:test/test.dart';
 
@@ -323,6 +324,77 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 20));
       expect(stream.isClosed, isFalse,
           reason: 'a failed PONG send must not kill the stream');
+    });
+  });
+
+  group('YamuxStream read deadline disarm', () {
+    YamuxStream _stream(Future<void> Function(YamuxFrame) sendFrame) {
+      final session = YamuxSession(_ConnHarness().conn, _config(), false);
+      return YamuxStream(
+        id: 1,
+        protocol: '',
+        metadata: {},
+        initialWindowSize: 256 * 1024,
+        sendFrame: sendFrame,
+        parentConn: session,
+        remotePeer: _peerId(2),
+        maxFrameSize: 1024 * 1024,
+      );
+    }
+
+    test('setDeadline(null) disarms an in-flight read wait', () async {
+      final stream = _stream((_) async {});
+      await stream.openIncoming();
+      addTearDown(() => stream.forceReset());
+
+      // Arm a deadline (e.g. the negotiation timeout), then begin a read that
+      // is still pending when the deadline is cleared — the multistream-select
+      // handshake does exactly this: negotiate under a deadline, hand the
+      // stream to a long-lived protocol handler that immediately reads.
+      await stream.setDeadline(
+          DateTime.now().add(const Duration(milliseconds: 1500)));
+      final pending = stream.read();
+      await pumpEventQueue();
+      await stream.setDeadline(null);
+
+      // Data arriving after the original deadline must still be delivered;
+      // the stale timeout must not fire.
+      await Future.delayed(const Duration(milliseconds: 2000));
+      await stream.handleFrame(
+          YamuxFrame.createData(1, Uint8List.fromList([1, 2, 3])));
+
+      final data = await pending.timeout(const Duration(seconds: 2));
+      expect(data, equals(Uint8List.fromList([1, 2, 3])));
+    });
+
+    test('an armed deadline still expires an in-flight read wait', () async {
+      final stream = _stream((_) async {});
+      await stream.openIncoming();
+      addTearDown(() => stream.forceReset());
+
+      await stream.setDeadline(
+          DateTime.now().add(const Duration(milliseconds: 200)));
+      await expectLater(
+        stream.read(),
+        throwsA(isA<YamuxStreamTimeoutException>()),
+      );
+    });
+
+    test('setReadDeadline while a wait is in-flight enforces the new deadline',
+        () async {
+      final stream = _stream((_) async {});
+      await stream.openIncoming();
+      addTearDown(() => stream.forceReset());
+
+      final pending = stream.read();
+      await pumpEventQueue();
+      await stream.setReadDeadline(
+          DateTime.now().add(const Duration(milliseconds: 200)));
+
+      await expectLater(
+        pending,
+        throwsA(isA<YamuxStreamTimeoutException>()),
+      );
     });
   });
 }

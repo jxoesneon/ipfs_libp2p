@@ -115,6 +115,10 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
   /// Completer for next read operation
   Completer<Uint8List>? _readCompleter;
 
+  /// Timer enforcing the read deadline for an in-flight wait.
+  /// Owned by the stream so setDeadline(null) can disarm a pending wait.
+  Timer? _readDeadlineTimer;
+
   /// Flag to indicate if a local FIN has been sent via closeWrite()
   bool _localFinSent = false;
 
@@ -187,6 +191,30 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
     if (effectiveDeadline == null) return null;
     final remaining = effectiveDeadline.difference(DateTime.now());
     return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  /// Re-arms the read deadline timer for an in-flight wait, if any.
+  /// Called whenever the deadline fields change or a new wait begins, so that
+  /// setDeadline(null) disarms a wait that started while a deadline was armed.
+  void _rearmReadDeadlineTimer() {
+    _readDeadlineTimer?.cancel();
+    _readDeadlineTimer = null;
+    final completer = _readCompleter;
+    if (completer == null || completer.isCompleted) return;
+    final remaining = _getRemainingDeadlineTime();
+    if (remaining == null) return;
+    _readDeadlineTimer = Timer(remaining, _onReadDeadlineExpired);
+  }
+
+  void _onReadDeadlineExpired() {
+    final completer = _readCompleter;
+    if (completer == null || completer.isCompleted) return;
+    _log.severe(
+        '$_logPrefix 🔧 [YAMUX-STREAM-READ-DEADLINE-EXPIRED] Read deadline expired while waiting for data');
+    // A plain TimeoutException is classified to YamuxStreamTimeoutException
+    // by YamuxExceptionHandler, preserving the existing timeout path.
+    completer.completeError(
+        TimeoutException('Yamux stream read deadline expired'));
   }
 
   YamuxStream({
@@ -703,8 +731,10 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
     int maxAttempts;
 
     if (remainingDeadlineTime != null) {
-      // Use deadline-based timeout
-      currentTimeout = remainingDeadlineTime;
+      // The deadline is enforced by the cancellable stream-owned
+      // _readDeadlineTimer so that setDeadline(null) can disarm this wait;
+      // the outer timeout is only a backstop.
+      currentTimeout = const Duration(minutes: 5);
       maxAttempts = 1; // Don't retry if we have a deadline
     } else if (_deadline == null && _readDeadline == null) {
       // No deadline set - use very long timeout for long-lived connections like relay streams
@@ -725,6 +755,7 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
         return await YamuxExceptionUtils.withTimeout<Uint8List>(
           () async {
             _readCompleter = Completer<Uint8List>();
+            _rearmReadDeadlineTimer();
 
             try {
               final completerAwaitStart = DateTime.now();
@@ -733,6 +764,8 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
                   DateTime.now().difference(completerAwaitStart);
 
               _readCompleter = null;
+              _readDeadlineTimer?.cancel();
+              _readDeadlineTimer = null;
 
               // Handle EOF signaled by handleFrame
               if (data.isEmpty &&
@@ -756,6 +789,8 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
               final completerErrorDuration =
                   DateTime.now().difference(attemptStartTime);
               _readCompleter = null;
+              _readDeadlineTimer?.cancel();
+              _readDeadlineTimer = null;
               _log.severe(
                   '$_logPrefix ðŸ”§ [YAMUX-STREAM-READ-WAIT-COMPLETER-ERROR] Error while waiting for data after ${completerErrorDuration.inMilliseconds}ms: $e. Current state: $_state');
 
@@ -1094,6 +1129,8 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
       }
       _readCompleter = null;
     }
+    _readDeadlineTimer?.cancel();
+    _readDeadlineTimer = null;
 
     if (_incomingQueue.isNotEmpty) {
       _log.finer(
@@ -1222,12 +1259,14 @@ class YamuxStream implements P2PStream<Uint8List>, core_mux.MuxedStream {
     } else {
       _log.fine('$_logPrefix setDeadline() cleared (set to null)');
     }
+    _rearmReadDeadlineTimer();
   }
 
   @override
   Future<void> setReadDeadline(DateTime time) async {
     _readDeadline = time;
     _log.fine('$_logPrefix setReadDeadline() set to ${time.toIso8601String()}');
+    _rearmReadDeadlineTimer();
   }
 
   @override

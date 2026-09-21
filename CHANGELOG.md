@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2026-09-21
+
+- **Fixed**: `YamuxStream` read waits now enforce deadlines through a
+  stream-owned, cancellable timer instead of a timeout snapshotted when the
+  wait begins. A read that started while the negotiation deadline was armed
+  kept that deadline even after `setDeadline(null)` cleared it, so
+  long-lived inbound streams (gossipsub, identify) were killed ~10s after
+  negotiation. Clearing or changing a deadline now disarms/re-arms the
+  in-flight wait immediately.
+
 ## [0.5.10] - 2026-09-20
 
 - **Fixed**: `P2PStreamAdapter.setDeadline(null)` now forwards the clear to
