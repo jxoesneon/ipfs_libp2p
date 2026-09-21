@@ -250,14 +250,7 @@ class P2PStreamAdapter implements P2PStream<Uint8List> {
 
   @override
   Future<void> setDeadline(DateTime? time) async {
-    // P2PStream allows nullable DateTime for clearing, MuxedStream does not.
-    // If time is null, we can't directly call setDeadline on MuxedStream
-    // unless the specific MuxedStream implementation has a way to clear deadlines.
-    // For now, if time is null, we do nothing. If a clear operation is needed,
-    // the MuxedStream interface might need an update or specific handling.
-    if (time != null) {
-      _underlyingMuxedStream.setDeadline(time);
-    }
+    _underlyingMuxedStream.setDeadline(time);
   }
 
   @override

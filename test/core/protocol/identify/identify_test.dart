@@ -2,6 +2,8 @@ import 'package:ipfs_libp2p/p2p/protocol/identify/identify.dart';
 import 'package:ipfs_libp2p/p2p/protocol/identify/pb/identify.pb.dart';
 import 'package:ipfs_libp2p/core/host/host.dart';
 import 'package:ipfs_libp2p/core/event/bus.dart';
+import 'package:ipfs_libp2p/core/network/conn.dart';
+import 'package:ipfs_libp2p/core/peer/peer_id.dart';
 import 'package:ipfs_libp2p/core/record/envelope.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -25,7 +27,7 @@ class FakeEmitter implements Emitter {
   Future<void> close() async {}
 }
 
-@GenerateMocks([Host, EventBus])
+@GenerateMocks([Host, EventBus, Conn])
 void main() {
   group('IdentifyService', () {
     late MockHost mockHost;
@@ -70,5 +72,22 @@ void main() {
         expect(result, isNull);
       });
     });
+
+    group('identifyWait', () {
+      test('returns immediately for an already-closed connection', () async {
+        // A conn closed before identify starts must not spawn _identifyConn
+        // and must resolve as "known no-op" rather than tripping the
+        // NO-COMPLETER warning path.
+        final conn = MockConn();
+        when(conn.isClosed).thenReturn(true);
+        when(conn.id).thenReturn('closed-conn');
+        when(conn.remotePeer).thenReturn(
+          PeerId.decode('12D3KooWP4hU4GEAqu6Pi7v7XEKLLD6u3Ui2rTLv1x3UoEtv62SM'),
+        );
+
+        final service = IdentifyService(mockHost);
+        await expectLater(service.identifyWait(conn), completes);
+      });
+    });
   });
-} 
+}

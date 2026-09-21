@@ -59,7 +59,9 @@ abstract class MuxedStream {
   Future<void> reset();
 
   /// Sets a deadline for all operations on the stream.
-  void setDeadline(DateTime time);
+  ///
+  /// Passing null clears any previously set deadline.
+  void setDeadline(DateTime? time);
 
   /// Sets a deadline for read operations on the stream.
   void setReadDeadline(DateTime time);
