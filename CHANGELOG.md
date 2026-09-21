@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-09-20
+
+- **Fixed**: `P2PStreamAdapter.setDeadline(null)` now forwards the clear to
+  the underlying `MuxedStream` instead of dropping it. The negotiation
+  deadline previously stayed armed on inbound streams, so every later read
+  timed out ~10s after stream creation and long-lived inbound streams
+  (gossipsub, identify) entered a kill/respawn cycle with go-libp2p peers.
+  `MuxedStream.setDeadline` accepts a nullable `DateTime`.
+- **Fixed**: `IdentifyService.identifyWait` no longer logs a false
+  `NO-COMPLETER` warning when the already-identified or already-closed
+  early-return path resolved the wait.
+
 ## [0.5.9] - 2026-09-20
 
 - **Fixed**: Yamux inbound-stream creation no longer blocks the session
