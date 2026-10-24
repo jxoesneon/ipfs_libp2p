@@ -630,7 +630,7 @@ func runDHTServer(port int) {
 	defer h.Close()
 
 	ctx := context.Background()
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+	kadDHT, err := dht.New(h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DHT error: %v\n", err)
 		os.Exit(1)
@@ -674,7 +674,7 @@ func runDHTPutValue(targetStr, key, value string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kadDHT, err := dht.New(h, dht.Mode(dht.ModeClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DHT error: %v\n", err)
 		os.Exit(1)
@@ -716,7 +716,7 @@ func runDHTGetValue(targetStr, key string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kadDHT, err := dht.New(h, dht.Mode(dht.ModeClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DHT error: %v\n", err)
 		os.Exit(1)
@@ -759,7 +759,7 @@ func runDHTProvide(targetStr, cidStr string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kadDHT, err := dht.New(h, dht.Mode(dht.ModeClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DHT error: %v\n", err)
 		os.Exit(1)
@@ -807,7 +807,7 @@ func runDHTFindProviders(targetStr, cidStr string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeClient))
+	kadDHT, err := dht.New(h, dht.Mode(dht.ModeClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "DHT error: %v\n", err)
 		os.Exit(1)
