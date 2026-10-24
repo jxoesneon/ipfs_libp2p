@@ -28,7 +28,13 @@ void main() {
     late MockUpgrader mockUpgrader;
     late AutoRelayConfig config;
 
+    /// Reachability events the AutoRelay background task listens for. The
+    /// advertisable addresses are re-evaluated (and re-emitted) whenever the
+    /// reachability changes or the relay finder reports new relays.
+    late StreamController<dynamic> reachabilityController;
+
     setUp(() {
+      reachabilityController = StreamController<dynamic>.broadcast();
       mockHost = MockHost();
       mockEventBus = MockEventBus();
       mockEmitter = MockEmitter();
@@ -54,7 +60,11 @@ void main() {
       when(mockEventBus.subscribe(any))
           .thenReturn(mockSubscription);
       when(mockSubscription.stream)
-          .thenAnswer((_) => Stream.empty().asBroadcastStream());
+          .thenAnswer((_) => reachabilityController.stream);
+    });
+
+    tearDown(() async {
+      await reachabilityController.close();
     });
 
     group('Initialization', () {
@@ -77,7 +87,8 @@ void main() {
     });
 
     group('Address Advertisement', () {
-      test('should emit address update events when started', () async {
+      test('should emit address update events when the reachability changes',
+          () async {
         // Arrange
         final autoRelay = AutoRelay(mockHost, mockUpgrader, userConfig: config);
         
@@ -88,10 +99,13 @@ void main() {
         when(mockNetwork.interfaceListenAddresses)
             .thenAnswer((_) async => interfaceAddrs);
 
-        // Act
+        // Act - the advertisable addresses are re-evaluated whenever the
+        // reachability changes (the AutoRelay background task listens for
+        // reachability events).
         await autoRelay.start();
-        
-        // Give some time for async operations
+        reachabilityController.add(
+          EvtLocalReachabilityChanged(reachability: Reachability.public),
+        );
         await Future.delayed(Duration(milliseconds: 100));
 
         // Assert - Verify address update event was emitted
@@ -113,6 +127,9 @@ void main() {
 
         // Act
         await autoRelay.start();
+        reachabilityController.add(
+          EvtLocalReachabilityChanged(reachability: Reachability.private),
+        );
         await Future.delayed(Duration(milliseconds: 100));
 
         // Assert - When private, should request relay addresses from RelayFinder
@@ -133,6 +150,9 @@ void main() {
 
         // Act
         await autoRelay.start();
+        reachabilityController.add(
+          EvtLocalReachabilityChanged(reachability: Reachability.public),
+        );
         await Future.delayed(Duration(milliseconds: 100));
 
         // Assert - Should emit addresses
@@ -338,8 +358,11 @@ void main() {
         when(mockNetwork.interfaceListenAddresses)
             .thenAnswer((_) async => [MultiAddr('/ip4/192.168.1.100/tcp/4001')]);
 
-        // Act
+        // Act - the address update is emitted when the reachability changes.
         await autoRelay.start();
+        reachabilityController.add(
+          EvtLocalReachabilityChanged(reachability: Reachability.public),
+        );
         await Future.delayed(Duration(milliseconds: 100));
 
         // Assert
@@ -350,8 +373,7 @@ void main() {
     });
 
     group('Edge Cases', () {
-      test('should handle empty interface addresses', () async {
-        // Arrange
+      test('should handle empty interface addresses', () async {        // Arrange
         final autoRelay = AutoRelay(mockHost, mockUpgrader, userConfig: config);
         
         when(mockNetwork.interfaceListenAddresses)
@@ -361,12 +383,15 @@ void main() {
         expect(() async => await autoRelay.start(), returnsNormally);
       });
 
-      test('should handle null config gracefully', () {
-        // Act
-        final autoRelay = AutoRelay(mockHost, mockUpgrader);
-
-        // Assert - Should use default config
-        expect(autoRelay.config, isNotNull);
+      test('should reject a config without a peer source', () {
+        // A config needs either static relays or a peer source callback:
+        // without one the AutoRelay has no way to look for relays, so the
+        // constructor rejects it instead of starting a relay finder that can
+        // never find anything.
+        expect(
+          () => AutoRelay(mockHost, mockUpgrader),
+          throwsA(isA<StateError>()),
+        );
       });
     });
   });

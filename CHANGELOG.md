@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-24
+
+### Changed
+- **Minimum Dart SDK is now 3.13.0** (was 3.5.0). The dependency refresh
+  pulls in packages that require Dart 3.11-3.13 (`synchronized 3.5.0`,
+  `test 1.33.0`, `build_runner 2.16.2`). This is a breaking change for
+  consumers on older SDKs.
+- **Dependencies updated to their latest releases**: `protobuf 6.1.0`,
+  `x25519 0.1.2`, `cryptography 2.9.0`, `crypto 3.0.7`, `fixnum 1.1.1`,
+  `uuid 4.6.0`, `synchronized 3.5.0`, `base32 2.2.0`, `mdns_dart 2.2.2`,
+  `base_x 2.0.1`, `async 2.13.1`, `meta 1.19.0`, `collection 1.19.1`,
+  `logging 1.3.0`, `convert 3.1.2`, `stack_trace 1.12.2`, `mockito 5.8.1`,
+  `build_runner 2.16.2`, `protoc_builder 0.6.1`, `test 1.33.0`, `lints 6.1.0`.
+- **`dart_udx` moved to the `^2.0.3` line**, matching the security pin the
+  `dart_ipfs` package applies. The fork previously resolved the older 0.3.x
+  release while its consumer overrode it, so the fork's own tests ran against
+  a different UDP stack than its consumers did.
+- **Added CI.** The package had no workflow at all, so a regression could
+  reach `main` unnoticed. The new workflow analyzes and tests the package on
+  Ubuntu, Windows, and macOS.
+
+### Fixed
+- **`MessageTooLargeException` is no longer swallowed.** Multistream wrapped
+  every unexpected error — including the typed `MessageTooLargeException` —
+  in a `FormatException`, so callers could no longer distinguish an oversized
+  message from a generic protocol failure. The typed exception is now
+  rethrown unchanged.
+- **Writing to a closed multistream stream fails consistently.** The read
+  path already reported a closed stream as a `FormatException`; the write
+  path let the underlying stream's `StateError` escape. Both now report the
+  same error.
+- **The analysis configuration was silently broken.** `strict_casts`,
+  `strict_inference`, and `strict_raw_type` were listed under `errors:`,
+  where they are not diagnostic codes — the analyzer reported them as
+  unrecognized error codes and none of them had any effect. They are
+  analyzer options, so they are now set where they belong.
+
+### Tests
+- The upstream test suite imported with the 1.0.3 merge carried stale
+  expectations that no longer matched the implementation, and 14 tests were
+  failing on `main`. They now assert the current contract:
+  - AutoRelay re-emits its advertisable addresses when the reachability
+    changes (it no longer emits them merely by starting), and a config
+    without static relays or a peer source is rejected.
+  - An identify timeout surfaces the typed `IdentifyTimeoutException`. The
+    test registered its non-responsive handler before the host started, so the
+    host's own identify handler replaced it and answered normally.
+  - Secured connections use the 2-byte length prefix the Noise spec
+    prescribes, not a 4-byte one.
+  - The ambient AutoNAT probe is rescheduled on the retry interval after an
+    address change, and a closed service no longer reacts to events.
+  - The multistream timeout and closed-stream tests await their expectations
+    (an async callback passed to `expect` is never awaited) and their mock
+    stream no longer waits forever for a controller close that cannot
+    complete.
+  - The swarm listen test no longer stubs a method on the real in-memory
+    address book, and keeps the mocked listener's stream open so the swarm
+    does not drop the listener again immediately.
+
 ## [0.5.11] - 2026-09-21
 
 - **Fixed**: `YamuxStream` read waits now enforce deadlines through a

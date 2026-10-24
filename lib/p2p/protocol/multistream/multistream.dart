@@ -348,6 +348,12 @@ class MultistreamMuxer implements ProtocolSwitch {
   /// Writes a delimited message to the stream
   Future<void> _writeDelimited(
       P2PStream<dynamic> stream, List<int> message) async {
+    // Fail the same way the read path does when the stream is already
+    // closed, instead of letting the underlying write throw.
+    if (stream.isClosed) {
+      throw FormatException('Cannot write to closed stream');
+    }
+
     // Encode the length as a varint
     final lengthBytes = MultiAddrCodec.encodeVarint(message.length + 1);
 
@@ -551,6 +557,13 @@ class MultistreamMuxer implements ProtocolSwitch {
     } on FormatException catch (e) {
       _log.warning(
           '[multistream] Format error during $operationName: ${e.message}');
+      await YamuxExceptionUtils.safeStreamReset(stream, context: operationName);
+      rethrow;
+    } on MessageTooLargeException catch (e) {
+      // Keep the typed exception: callers distinguish "message too large"
+      // from a generic protocol failure, so it must not be wrapped.
+      _log.warning(
+          '[multistream] Message too large during $operationName: ${e.message}');
       await YamuxExceptionUtils.safeStreamReset(stream, context: operationName);
       rethrow;
     } catch (e, stackTrace) {

@@ -73,7 +73,12 @@ void main() {
     late MockConnManager mockConnManager;
     late MockConnGater mockConnGater;
 
+    /// Keeps the mocked listener's connection stream open for the duration
+    /// of a test.
+    late StreamController<TransportConn> controller;
+
     setUp(() async {
+      controller = StreamController<TransportConn>();
       // 1. Initialize Mocks
       mockPeerstore = MockPeerstore();
       mockKeyBook = MockKeyBook(); // Added
@@ -186,19 +191,19 @@ void main() {
       when(mockListener.addr).thenReturn(listenAddrActual); // Correct getter
       // when(mockListener.laddr).thenReturn(listenAddrActual); // Incorrect getter
       when(mockListener.close()).thenAnswer((_) async {});
-      // Mock connectionStream to return an empty stream by default for this test,
-      // as Swarm.listen will try to listen to it.
-      when(mockListener.connectionStream).thenAnswer((_) => Stream<TransportConn>.empty());
+      // Mock connectionStream to return a stream that stays open by default for
+      // this test, as Swarm.listen will try to listen to it. A stream that
+      // completes immediately would make the swarm drop the listener (and
+      // its address) again right away.
+      when(mockListener.connectionStream).thenAnswer((_) => controller.stream);
 
 
       when(mockTransport.canListen(listenAddrInput)).thenReturn(true);
       when(mockTransport.listen(listenAddrInput)).thenAnswer((_) async => mockListener);
       
-      // Swarm.listen also calls peerstore.addAddrs
-      const expectedTTL = Duration(hours: 24 * 365 * 100); // Explicitly define for clarity
-      when(mockAddrBook.addAddrs(localPeerId, [listenAddrActual], expectedTTL))
-          .thenAnswer((_) async {});
-
+      // Swarm.listen also calls peerstore.addAddrs. The address book is a
+      // real in-memory implementation (not a mock), so there is nothing to
+      // stub — the call goes straight through.
       await swarm.listen([listenAddrInput]);
 
       verify(mockTransport.listen(listenAddrInput)).called(1);
