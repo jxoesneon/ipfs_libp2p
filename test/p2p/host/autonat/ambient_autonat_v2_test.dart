@@ -282,7 +282,9 @@ void main() {
       );
       
       // Wait a bit for processing
-      await Future.delayed(const Duration(milliseconds: 100));
+      // The address change lowers the confidence, so the next probe uses the
+      // retry interval (1s in this config) rather than the refresh interval.
+      await Future.delayed(const Duration(milliseconds: 1200));
 
       // New probe should be scheduled
       // Verify by checking that getReachability was called again
@@ -302,9 +304,20 @@ void main() {
       // Act
       await ambient.close();
 
-      // Assert
-      verify(mockSubscription.close()).called(1);
+      // Assert - the reachability emitter is closed...
       verify(mockEmitter.close()).called(1);
+
+      // ...and the service stopped listening: an address change after close
+      // must not schedule another probe.
+      clearInteractions(mockAutoNATv2);
+      eventStreamController.add(
+        EvtLocalAddressesUpdated(
+          diffs: false,
+          current: [],
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 300));
+      verifyNever(mockAutoNATv2.getReachability(any));
     });
 
     test('uses custom address function if provided', () async {

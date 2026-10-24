@@ -80,7 +80,10 @@ class TimeoutMockStream implements P2PStream<Uint8List> {
   @override
   Future<void> close() async {
     _isClosed = true;
-    await _controller.close();
+    // The controller's done future only completes once its buffered data has
+    // been consumed by a listener, which never happens for this mock — so the
+    // close must not be awaited.
+    unawaited(_controller.close());
   }
 
   @override
@@ -96,7 +99,7 @@ class TimeoutMockStream implements P2PStream<Uint8List> {
   @override
   Future<void> reset() async {
     _isClosed = true;
-    await _controller.close();
+    unawaited(_controller.close());
   }
 
   @override
@@ -134,8 +137,10 @@ void main() {
       // Attempt to read from the stream - should timeout quickly
       final stopwatch = Stopwatch()..start();
       
-      expect(
-        () async => await muxer.selectOneOf(stream, ['/test/protocol']),
+      // `expect` with an async callback does not await it — the future has
+      // to be awaited explicitly for the expectation to hold.
+      await expectLater(
+        muxer.selectOneOf(stream, ['/test/protocol']),
         throwsA(isA<TimeoutException>()),
       );
       
@@ -183,8 +188,8 @@ void main() {
       await stream.close();
       
       // Attempt to use the closed stream
-      expect(
-        () async => await muxer.selectOneOf(stream, ['/test/protocol']),
+      await expectLater(
+        muxer.selectOneOf(stream, ['/test/protocol']),
         throwsA(isA<FormatException>()),
       );
     });

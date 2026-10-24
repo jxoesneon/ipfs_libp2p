@@ -6,6 +6,15 @@ analyzer:
     - "**/*.pbenum.dart"
     - "**/*.pbjson.dart"
     - "**/*.pbserver.dart"
+  language:
+    # The previous file listed `strict_casts`, `strict_inference` and
+    # `strict_raw_type` under `errors:`, where they are not diagnostic codes
+    # and therefore had no effect (the analyzer reported them as
+    # unrecognized error codes). They are analyzer *options*, so they are
+    # set here — off, matching the intent of the original entries.
+    strict-casts: false
+    strict-inference: false
+    strict-raw-types: false
   errors:
     unused_import: ignore
     unused_local_variable: ignore
@@ -29,7 +38,4 @@ analyzer:
     unused_catch_stack: ignore
     unused_catch_clause: ignore
     undefined_shown_name: ignore
-    doc_directive_has_invalid_argument: ignore
     strict_raw_type: ignore
-    strict_inference: ignore
-    strict_casts: ignore
